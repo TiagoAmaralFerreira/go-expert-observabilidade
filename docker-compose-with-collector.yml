@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Zipkin para tracing distribuído
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    environment:
+      - STORAGE_TYPE=mem
+    networks:
+      - weather-network
+
+  # OTEL Collector (opcional)
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    command: [ "--config=/etc/otel-collector-config.yaml" ]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    depends_on:
+      - zipkin
+    networks:
+      - weather-network
+
+  # Serviço A - Validação de CEP
+  service-a:
+    build:
+      context: ./service-a
+      dockerfile: Dockerfile
+    container_name: service-a
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - SERVICE_B_URL=http://service-b:8082
+      - ZIPKIN_URL=http://otel-collector:4318/v1/traces
+    depends_on:
+      - otel-collector
+      - service-b
+    networks:
+      - weather-network
+
+  # Serviço B - Orquestração de CEP e Temperatura
+  service-b:
+    build:
+      context: ./service-b
+      dockerfile: Dockerfile
+    container_name: service-b
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - WEATHER_API_KEY=${WEATHER_API_KEY}
+      - ZIPKIN_URL=http://otel-collector:4318/v1/traces
+    depends_on:
+      - otel-collector
+    networks:
+      - weather-network
+
+networks:
+  weather-network:
+    driver: bridge

@@ -1,0 +1,36 @@
+# Binários
+main
+cloudrun
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Arquivos de teste
+*.test
+*.out
+
+# Arquivos de ambiente
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Cloud Run
+.gcloudignore 
