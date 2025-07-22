@@ -77,7 +77,7 @@ func validateCEP(cep string) bool {
 }
 
 func forwardToServiceB(ctx context.Context, cep string) ([]byte, int, error) {
-	span := trace.SpanFromContext(ctx)
+	ctx, span := tracer.Start(ctx, "forwardToServiceB")
 	defer span.End()
 
 	serviceBURL := os.Getenv("SERVICE_B_URL")
@@ -125,8 +125,7 @@ func forwardToServiceB(ctx context.Context, cep string) ([]byte, int, error) {
 }
 
 func cepHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	span := trace.SpanFromContext(ctx)
+	ctx, span := tracer.Start(r.Context(), "cepHandler")
 	defer span.End()
 
 	// Verifica se é POST
