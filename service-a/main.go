@@ -31,7 +31,12 @@ type ErrorResponse struct {
 var tracer trace.Tracer
 
 func initTracer() (*sdktrace.TracerProvider, error) {
-	exporter, err := zipkin.New("http://localhost:9411/api/v2/spans")
+	zipkinURL := os.Getenv("ZIPKIN_URL")
+	if zipkinURL == "" {
+		zipkinURL = "http://localhost:9411"
+	}
+
+	exporter, err := zipkin.New(zipkinURL + "/api/v2/spans")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create zipkin exporter: %w", err)
 	}
@@ -77,7 +82,7 @@ func forwardToServiceB(ctx context.Context, cep string) ([]byte, int, error) {
 
 	serviceBURL := os.Getenv("SERVICE_B_URL")
 	if serviceBURL == "" {
-		serviceBURL = "http://localhost:8082"
+		serviceBURL = "http://localhost:8081"
 	}
 
 	// Cria o payload para o Serviço B
@@ -119,7 +124,7 @@ func forwardToServiceB(ctx context.Context, cep string) ([]byte, int, error) {
 	return body, resp.StatusCode, nil
 }
 
-func weatherHandler(w http.ResponseWriter, r *http.Request) {
+func cepHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	span := trace.SpanFromContext(ctx)
 	defer span.End()
@@ -180,11 +185,11 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/weather", corsMiddleware(weatherHandler))
+	http.HandleFunc("/cep", corsMiddleware(cepHandler))
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8081"
+		port = "8080"
 	}
 
 	log.Printf("Service A starting on port %s", port)

@@ -25,7 +25,7 @@ WORKDIR /root/
 COPY --from=builder /app/main .
 
 # Expõe a porta
-EXPOSE 8082
+EXPOSE 8081
 
 # Comando para executar a aplicação
 CMD ["./main"] 

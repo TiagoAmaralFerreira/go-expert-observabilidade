@@ -1,18 +1,26 @@
-# Weather API
+# Sistema de Temperatura por CEP com OTEL
 
-API para consultar temperatura baseada em CEP brasileiro.
+Sistema distribuído em Go que recebe um CEP, identifica a cidade e retorna o clima atual com implementação de OpenTelemetry e Zipkin para observabilidade.
+
+## 🏗️ Arquitetura
+
+O sistema é composto por dois serviços:
+
+- **Serviço A**: Responsável pelo input e validação do CEP
+- **Serviço B**: Responsável pela orquestração e busca de dados de temperatura
 
 ## 🚀 Funcionalidades
 
-- Consulta de temperatura por CEP
-- Suporte a múltiplas unidades de temperatura (Celsius, Fahrenheit, Kelvin)
-- Validação de CEP
-- Tratamento de erros robusto
-- CORS habilitado
+- Validação de CEP (8 dígitos)
+- Busca de localização por CEP via ViaCEP
+- Consulta de temperatura via WeatherAPI
+- Conversão automática de temperaturas (Celsius, Fahrenheit, Kelvin)
+- Tracing distribuído com OpenTelemetry
+- Visualização de traces no Zipkin
 
 ## 📋 Pré-requisitos
 
-- Go 1.22+
+- Docker e Docker Compose
 - Conta na [WeatherAPI](https://www.weatherapi.com/) (gratuita)
 
 ## ⚙️ Configuração
@@ -20,110 +28,126 @@ API para consultar temperatura baseada em CEP brasileiro.
 1. **Clone o repositório:**
    ```bash
    git clone <seu-repositorio>
-   cd cloud-run
+   cd observabilidade
    ```
 
 2. **Configure as variáveis de ambiente:**
-   Crie um arquivo `.env` na raiz do projeto:
+   Copie o arquivo de exemplo e configure:
+   ```bash
+   cp env.example .env
+   ```
+   
+   Edite o arquivo `.env`:
    ```env
    WEATHER_API_KEY=sua_chave_aqui
-   PORT=8082
-   ```
-
-3. **Instale as dependências:**
-   ```bash
-   go mod tidy
+   SERVICE_A_PORT=8080
+   SERVICE_B_PORT=8081
+   ZIPKIN_URL=http://localhost:9411
+   OTEL_COLLECTOR_URL=http://localhost:4317
    ```
 
 ## 🏃‍♂️ Executando
 
-### Desenvolvimento
+### Com Docker Compose (Recomendado)
 ```bash
+docker-compose up --build
+```
+
+### Desenvolvimento Local
+```bash
+# Terminal 1 - Serviço A
+cd service-a
 go run main.go
-```
 
-### Produção
-```bash
-go build -o main .
-./main
-```
+# Terminal 2 - Serviço B  
+cd service-b
+go run main.go
 
-### Docker
-```bash
-docker build -t weather-api .
-docker run -p 8080:8080 weather-api
+# Terminal 3 - Zipkin
+docker run -d -p 9411:9411 openzipkin/zipkin
 ```
 
 ## 📡 Endpoints
 
-### GET /weather/{CEP}
+### Serviço A - POST /cep
+Recebe um CEP e encaminha para o Serviço B.
 
-Consulta a temperatura para um CEP específico.
-
-**Parâmetros:**
-- `CEP`: CEP brasileiro (8 dígitos, sem hífen)
-
-**Exemplo de requisição:**
-```bash
-curl http://localhost:8082/weather/08141140
-```
-
-**Resposta de sucesso:**
+**Request Body:**
 ```json
 {
-  "temp_C": 25.5,
-  "temp_F": 77.9,
-  "temp_K": 298.65
+  "cep": "29902555"
 }
 ```
 
-**Respostas de erro:**
+**Resposta de sucesso (200):**
+```json
+{
+  "city": "São Paulo",
+  "temp_C": 28.5,
+  "temp_F": 83.3,
+  "temp_K": 301.65
+}
+```
+
+**Resposta de erro (422):**
 ```json
 {
   "message": "invalid zipcode"
 }
 ```
-```json
-{
-  "message": "can not find zipcode"
-}
+
+### Serviço B - GET /weather/{cep}
+Consulta direta de temperatura por CEP.
+
+**Exemplo:**
+```bash
+curl http://localhost:8081/weather/29902555
 ```
 
 ## 🧪 Testes
 
 ```bash
-go test ./services -v
+# Teste do Serviço A
+curl -X POST http://localhost:8080/cep \
+  -H "Content-Type: application/json" \
+  -d '{"cep": "29902555"}'
+
+# Teste do Serviço B
+curl http://localhost:8081/weather/29902555
 ```
 
-## 🚀 Deploy no Cloud Run
+## 📊 Observabilidade
 
-```bash
-gcloud run deploy weather-api --source . --region us-central1 --allow-unauthenticated
-```
+### Zipkin UI
+Acesse http://localhost:9411 para visualizar os traces distribuídos.
+
+### Métricas Coletadas
+- Tempo de resposta do ViaCEP
+- Tempo de resposta do WeatherAPI
+- Traces completos da requisição
 
 ## 📁 Estrutura do Projeto
 
 ```
-├── handlers/          # Handlers HTTP
-│   └── weather.go
-├── services/          # Lógica de negócio
-│   ├── cep.go
-│   ├── weather.go
-│   └── cep_test.go
-├── main.go           # Ponto de entrada
-├── Dockerfile        # Configuração Docker
-├── go.mod           # Dependências Go
-└── .env             # Variáveis de ambiente
+├── service-a/           # Serviço A - Input e validação
+│   ├── main.go
+│   ├── go.mod
+│   └── Dockerfile
+├── service-b/           # Serviço B - Orquestração
+│   ├── main.go
+│   ├── services/
+│   ├── go.mod
+│   └── Dockerfile
+├── docker-compose.yml   # Orquestração dos serviços
+├── otel-collector-config.yaml
+└── README.md
 ```
 
 ## 🔧 Tecnologias
 
 - **Go**: Linguagem principal
-- **WeatherAPI**: API de clima
+- **OpenTelemetry**: Observabilidade
+- **Zipkin**: Visualização de traces
 - **ViaCEP**: API de CEPs brasileiros
+- **WeatherAPI**: API de clima
 - **Docker**: Containerização
-- **Cloud Run**: Plataforma de deploy
-
-## 📝 Licença
-
-Este projeto está sob a licença MIT. 

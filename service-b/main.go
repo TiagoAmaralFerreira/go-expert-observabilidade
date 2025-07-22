@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"service-b/services"
 
@@ -37,7 +38,12 @@ type ErrorResponse struct {
 var tracer trace.Tracer
 
 func initTracer() (*sdktrace.TracerProvider, error) {
-	exporter, err := zipkin.New("http://localhost:9411/api/v2/spans")
+	zipkinURL := os.Getenv("ZIPKIN_URL")
+	if zipkinURL == "" {
+		zipkinURL = "http://localhost:9411"
+	}
+
+	exporter, err := zipkin.New(zipkinURL + "/api/v2/spans")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create zipkin exporter: %w", err)
 	}
@@ -59,7 +65,7 @@ func initTracer() (*sdktrace.TracerProvider, error) {
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 		if r.Method == "OPTIONS" {
@@ -71,73 +77,100 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func weatherHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+func validateCEP(cep string) bool {
+	return len(cep) == 8
+}
+
+func processCEP(ctx context.Context, cep string) (*WeatherResponse, int, error) {
 	span := trace.SpanFromContext(ctx)
 	defer span.End()
 
-	// Verifica se é POST
-	if r.Method != "POST" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "method not allowed"})
-		return
-	}
-
-	// Decodifica o request
-	var cepReq CEPRequest
-	if err := json.NewDecoder(r.Body).Decode(&cepReq); err != nil {
-		span.RecordError(err)
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "invalid request format"})
-		return
-	}
-
-	span.SetAttributes(semconv.HTTPMethod("POST"))
-	span.SetAttributes(semconv.HTTPURL(r.URL.String()))
-
 	// Valida o CEP
-	if len(cepReq.CEP) != 8 {
+	if !validateCEP(cep) {
 		span.SetAttributes(semconv.HTTPStatusCode(422))
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "invalid zipcode"})
-		return
+		return nil, 422, fmt.Errorf("invalid zipcode")
 	}
 
 	// Busca a cidade pelo CEP
-	city, err := services.GetCityByCEP(ctx, cepReq.CEP)
+	city, err := services.GetCityByCEP(ctx, cep)
 	if err != nil {
 		if err.Error() == "can not find zipcode" {
 			span.SetAttributes(semconv.HTTPStatusCode(404))
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(ErrorResponse{Message: "can not find zipcode"})
-			return
+			return nil, 404, fmt.Errorf("can not find zipcode")
 		}
 		span.RecordError(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "error getting city information"})
-		return
+		return nil, 500, fmt.Errorf("error getting city information")
 	}
 
 	// Busca a temperatura
 	tempC, err := services.GetTemperature(ctx, city)
 	if err != nil {
 		span.RecordError(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(ErrorResponse{Message: "error getting weather information"})
-		return
+		return nil, 500, fmt.Errorf("error getting weather information")
 	}
 
-	response := WeatherResponse{
+	response := &WeatherResponse{
 		City:  city,
 		TempC: tempC,
 		TempF: tempC*1.8 + 32,
 		TempK: tempC + 273,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	span.SetAttributes(semconv.HTTPStatusCode(200))
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	return response, 200, nil
+}
+
+func weatherHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	span := trace.SpanFromContext(ctx)
+	defer span.End()
+
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case "GET":
+		// Extrai o CEP da URL /weather/{cep}
+		path := strings.TrimPrefix(r.URL.Path, "/weather/")
+		if path == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "CEP parameter required"})
+			return
+		}
+
+		response, statusCode, err := processCEP(ctx, path)
+		if err != nil {
+			w.WriteHeader(statusCode)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: err.Error()})
+			return
+		}
+
+		w.WriteHeader(statusCode)
+		json.NewEncoder(w).Encode(response)
+
+	case "POST":
+		// Decodifica o request
+		var cepReq CEPRequest
+		if err := json.NewDecoder(r.Body).Decode(&cepReq); err != nil {
+			span.RecordError(err)
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: "invalid request format"})
+			return
+		}
+
+		response, statusCode, err := processCEP(ctx, cepReq.CEP)
+		if err != nil {
+			w.WriteHeader(statusCode)
+			json.NewEncoder(w).Encode(ErrorResponse{Message: err.Error()})
+			return
+		}
+
+		w.WriteHeader(statusCode)
+		json.NewEncoder(w).Encode(response)
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(ErrorResponse{Message: "method not allowed"})
+	}
 }
 
 func main() {
@@ -157,10 +190,11 @@ func main() {
 	}()
 
 	http.HandleFunc("/weather", corsMiddleware(weatherHandler))
+	http.HandleFunc("/weather/", corsMiddleware(weatherHandler))
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8082"
+		port = "8081"
 	}
 
 	log.Printf("Service B starting on port %s", port)

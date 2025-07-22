@@ -1,44 +1,97 @@
-# 🚀 Guia de Início Rápido
+# 🚀 Guia Rápido - Sistema de Temperatura por CEP
 
-## Pré-requisitos
+Este guia mostra como executar rapidamente o sistema de temperatura por CEP com observabilidade.
 
-1. **Docker e Docker Compose** instalados
-2. **Chave da WeatherAPI** (gratuita em https://www.weatherapi.com/)
+## 📋 Pré-requisitos
 
-## ⚡ Execução Rápida
+- Docker e Docker Compose instalados
+- Conta na [WeatherAPI](https://www.weatherapi.com/) (gratuita)
 
-### 1. Configure as variáveis de ambiente
+## ⚙️ Configuração Rápida
+
+1. **Clone e configure:**
+   ```bash
+   git clone <seu-repositorio>
+   cd observabilidade
+   cp env.example .env
+   ```
+
+2. **Configure sua chave da WeatherAPI:**
+   ```bash
+   # Edite o arquivo .env e adicione sua chave
+   nano .env
+   ```
+
+3. **Execute o sistema:**
+   ```bash
+   docker-compose up --build
+   ```
+
+## 🧪 Testando
+
+Após os serviços estarem rodando, execute:
 
 ```bash
-cp env.example .env
-# Edite o arquivo .env e adicione sua chave da WeatherAPI
-```
-
-### 2. Execute o sistema
-
-```bash
-docker-compose up --build
-```
-
-### 3. Teste a API
-
-```bash
-# Teste com CEP válido
-curl -X POST http://localhost:8081/weather \
-  -H "Content-Type: application/json" \
-  -d '{"cep": "01310100"}'
-
-# Ou use o script de teste
 ./test-api.sh
 ```
 
-### 4. Visualize os traces
+Ou teste manualmente:
 
-Acesse: http://localhost:9411
+```bash
+# Teste do Serviço A
+curl -X POST http://localhost:8080/cep \
+  -H "Content-Type: application/json" \
+  -d '{"cep": "29902555"}'
 
-## 📊 O que você verá
+# Teste do Serviço B
+curl http://localhost:8081/weather/29902555
+```
 
-### Resposta da API
+## 📊 Observabilidade
+
+- **Zipkin UI**: http://localhost:9411
+- **Logs dos serviços**: `docker-compose logs -f`
+
+## 🏗️ Arquitetura
+
+```
+┌─────────────┐    HTTP    ┌─────────────┐    HTTP    ┌─────────────┐
+│   Cliente   │ ────────── │ Serviço A   │ ────────── │ Serviço B   │
+│             │            │ (Porta 8080)│            │ (Porta 8081)│
+└─────────────┘            └─────────────┘            └─────────────┘
+                                   │                         │
+                                   │ OTEL                    │ OTEL
+                                   ▼                         ▼
+                            ┌─────────────┐            ┌─────────────┐
+                            │   Zipkin    │            │ ViaCEP API  │
+                            │ (Porta 9411)│            │             │
+                            └─────────────┘            └─────────────┘
+                                                              │
+                                                              │ HTTP
+                                                              ▼
+                                                       ┌─────────────┐
+                                                       │WeatherAPI   │
+                                                       │             │
+                                                       └─────────────┘
+```
+
+## 🔧 Serviços
+
+### Serviço A (Porta 8080)
+- **Endpoint**: `POST /cep`
+- **Função**: Validação de CEP e encaminhamento para Serviço B
+- **Validações**: 8 dígitos, formato string
+
+### Serviço B (Porta 8081)
+- **Endpoints**: 
+  - `GET /weather/{cep}`
+  - `POST /weather`
+- **Função**: Busca cidade por CEP e temperatura
+- **APIs**: ViaCEP + WeatherAPI
+
+## 📝 Respostas
+
+### Sucesso (200)
 ```json
 {
   "city": "São Paulo",
@@ -48,35 +101,43 @@ Acesse: http://localhost:9411
 }
 ```
 
-### Traces no Zipkin
-- Tempo de resposta de cada operação
-- Dependências entre serviços
-- Detalhes das chamadas para APIs externas
-
-## 🛠️ Comandos Úteis
-
-```bash
-# Ver logs
-docker-compose logs service-a
-docker-compose logs service-b
-
-# Parar serviços
-docker-compose down
-
-# Reconstruir
-docker-compose up --build
-
-# Executar em background
-docker-compose up -d
+### Erro - CEP Inválido (422)
+```json
+{
+  "message": "invalid zipcode"
+}
 ```
 
-## 🔧 Troubleshooting
+### Erro - CEP Não Encontrado (404)
+```json
+{
+  "message": "can not find zipcode"
+}
+```
 
-### Problema: "weather API key not configured"
-**Solução**: Configure a variável `WEATHER_API_KEY` no arquivo `.env`
+## 🛠️ Desenvolvimento Local
 
-### Problema: "can not find zipcode"
-**Solução**: Use um CEP válido (ex: "01310100" para São Paulo)
+Para desenvolvimento sem Docker:
 
-### Problema: Serviços não iniciam
-**Solução**: Verifique se as portas 8081, 8082 e 9411 estão livres 
+```bash
+# Terminal 1 - Serviço A
+cd service-a
+go run main.go
+
+# Terminal 2 - Serviço B
+cd service-b
+go run main.go
+
+# Terminal 3 - Zipkin
+docker run -d -p 9411:9411 openzipkin/zipkin
+```
+
+## 🐛 Troubleshooting
+
+1. **Erro de conexão**: Verifique se as portas estão livres
+2. **Erro de API**: Configure corretamente a chave da WeatherAPI
+3. **Traces não aparecem**: Aguarde alguns segundos para o Zipkin processar
+
+## 📚 Documentação Completa
+
+Veja o [README.md](README.md) para documentação detalhada. 

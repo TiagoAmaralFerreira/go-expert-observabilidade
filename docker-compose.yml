@@ -1,6 +1,19 @@
 version: '3.8'
 
 services:
+  # OTEL Collector
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    command: [ "--config=/etc/otel-collector-config.yaml" ]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - weather-network
+
   # Zipkin para tracing distribuído
   zipkin:
     image: openzipkin/zipkin:latest
@@ -19,12 +32,14 @@ services:
       dockerfile: Dockerfile
     container_name: service-a
     ports:
-      - "8081:8081"
+      - "8080:8080"
     environment:
-      - PORT=8081
-      - SERVICE_B_URL=http://service-b:8082
-      - ZIPKIN_URL=http://zipkin:9411/api/v2/spans
+      - PORT=8080
+      - SERVICE_B_URL=http://service-b:8081
+      - ZIPKIN_URL=http://zipkin:9411
+      - OTEL_COLLECTOR_URL=http://otel-collector:4317
     depends_on:
+      - otel-collector
       - zipkin
       - service-b
     networks:
@@ -37,12 +52,14 @@ services:
       dockerfile: Dockerfile
     container_name: service-b
     ports:
-      - "8082:8082"
+      - "8081:8081"
     environment:
-      - PORT=8082
+      - PORT=8081
       - WEATHER_API_KEY=${WEATHER_API_KEY}
-      - ZIPKIN_URL=http://zipkin:9411/api/v2/spans
+      - ZIPKIN_URL=http://zipkin:9411
+      - OTEL_COLLECTOR_URL=http://otel-collector:4317
     depends_on:
+      - otel-collector
       - zipkin
     networks:
       - weather-network
