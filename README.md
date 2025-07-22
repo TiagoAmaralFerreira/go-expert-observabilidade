@@ -151,3 +151,9 @@ Acesse http://localhost:9411 para visualizar os traces distribuídos.
 - **ViaCEP**: API de CEPs brasileiros
 - **WeatherAPI**: API de clima
 - **Docker**: Containerização
+
+## 🧾 Evidências
+
+<img width="1914" height="1029" alt="image" src="https://github.com/user-attachments/assets/72b15e57-216a-4df6-8c8a-93ba10068359" />
+
+<img width="1565" height="643" alt="image" src="https://github.com/user-attachments/assets/13d06617-53de-4093-b685-ce00a24817e0" />
